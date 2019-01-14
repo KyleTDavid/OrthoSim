@@ -1,0 +1,30 @@
+input_string="CAG"
+
+#sanity checks for completeness and prescence of stop codon
+function inputsanitycheck(x)
+    if length(x)%3 != 0
+        error("Incomplete Codon Sequence (Sequence Not a Multiple of 3), exiting")
+    elseif contains(x,("TAG"))
+        error("Codon Sequence Contains Stop Codon, exiting")
+    elseif contains(x,("TAA"))
+        error("Codon Sequence Contains Stop Codon, exiting")
+    elseif contains(x,("TGA"))
+        error("Codon Sequence Contains Stop Codon, exiting")
+    end
+end
+
+inputsanitycheck(input_string)
+
+#function to break sequence into codons, which are returned as a list
+function codoncut(x)
+array = Array{String}(Int64(length(x)/3))
+n=1
+for i in 1:3:length(x)
+    array[n]=x[i:i+2]
+    n+=1
+    println(n)
+end
+return array
+end
+
+ManCodonSeq=codoncut(input_string)

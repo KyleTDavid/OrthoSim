@@ -1,14 +1,15 @@
 #define tree data structure and associated helper functions
-module SimTree
 
+module SimTree
+    using Random
     mutable struct Clade
-        node::Union{String,Void}
-        children::Union{Vector{Clade},Void}
-        branchlength::Union{Vector{Real},Void}
-        evoltype::Union{String,Void}
+        node::Union{String,Nothing}
+        children::Union{Vector{Clade},Nothing}
+        branchlength::Union{Vector{Real},Nothing}
+        evoltype::Union{String,Nothing}
         function Clade(a=nothing,b=nothing,c=nothing,d="Speciation")
-            if typeof(a) == Void
-                a = randstring(4)
+            if typeof(a) == Nothing
+                a = randstring(5)
             end
             if typeof(b) == Vector{Clade}
                 if !(typeof(c) in [Vector{Float64},Vector{Int64},Vector{Real}])
@@ -35,13 +36,32 @@ module SimTree
         end
     end
 
+    function istip(x::Clade)
+        if x.children == nothing
+            return(true)
+        else
+            return(false)
+        end
+    end
+
     function getheight(x::Clade,h::Real=0)
-        if isleaf(x.children[1])
+        if isleaf(x)
+            return 0
+        elseif isleaf(x.children[1])
             h = h + x.branchlength[1]
+            return h
         else
             h = h + x.branchlength[1]
             getheight(x.children[1],h)
         end
+    end
+
+    function tallestclade(x::Array{Clade})
+        heightlist=[]
+        for clade in x
+            append!(heightlist,[getheight(clade)])
+        end
+        return x[findmax(heightlist)[2]]
     end
 
     function _getnames(x::Array,E::Int64=1,l::Array=[])
@@ -74,7 +94,7 @@ module SimTree
     end
 
     function getnodes(clade::Clade,cladelist::Array=[])
-        if isleaf(clade)
+        if istip(clade)
             push!(cladelist,clade)
             return(cladelist)
         else
@@ -85,6 +105,22 @@ module SimTree
         end
     end
 
-    export Clade, getnodes, isleaf, _getnames, nameleaves, getheight
+    function isterminal(clade::Clade)
+        if any(testclade.children .== "Leaf")
+            return(false)
+        else
+            for branch in testclade.children
+                isterminal(branch)
+            end
+        end
+    end
+
+    export Clade, getnodes, isleaf, istip, _getnames, nameleaves, getheight
 
 end
+
+testclade = Clade(nothing,[Clade(nothing,nothing,nothing,"Loss"),Clade(nothing,nothing,nothing,"Loss")],[1,1])
+
+isterminal(testclade)
+
+Main.SimTree.Clade

@@ -2,7 +2,7 @@
 module SimNewick
 
     using DataStructures
-    importall SimTree
+    import Main.SimTree: Clade
 
     function _writenewickint(x::Clade)
 
