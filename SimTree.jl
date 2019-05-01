@@ -2,22 +2,17 @@
 
 module SimTree
     using Random
+
+    #structure for working with tress
     mutable struct Clade
-        node::Union{String,Nothing}
-        children::Union{Vector{Clade},Nothing}
-        branchlength::Union{Vector{Real},Nothing}
-        evoltype::Union{String,Nothing}
-        function Clade(a=nothing,b=nothing,c=nothing,d="Speciation")
-            if typeof(a) == Nothing
-                a = randstring(5)
-            end
+        node::Union{String,Nothing} #optional node name
+        children::Union{Vector{Clade},Nothing} #optional children
+        branchlength::Union{Vector{Real},Nothing} #child branch lengths, required if children present
+        evoltype::Union{String,Nothing} #to track ortho/paralogs, speciation by default
+        function Clade(a="",b=nothing,c=nothing,d="Speciation")
             if typeof(b) == Vector{Clade}
                 if !(typeof(c) in [Vector{Float64},Vector{Int64},Vector{Real}])
                     error("children do not have branch lengths")
-                elseif length(b) != 2
-                    error("nodes must be bifurcating")
-                elseif length(c) != 2
-                    error("nodes must be bifurcating")
                 elseif 0 in c
                     error("branch lengths cannot be 0")
                 end
@@ -28,6 +23,62 @@ module SimTree
         end
     end
 
+    Base.copy(s::Clade) = Clade(s.node, s.children, s.branchlength, s.evoltype)
+
+
+    #internal function to write Clade structures to newick format
+    function _writenewick(x::Clade)
+        newick="("
+        if x.children[1].children == nothing
+            newick = newick * x.children[1].node * ":" * string(x.branchlength[1]) * ","
+        else newick = newick * _writenewick(x.children[1]) * string(x.children[1].node) * ":" * string(x.branchlength[1]) * ","
+        end
+
+        if x.children[2].children == nothing
+            newick = newick * x.children[2].node * ":" * string(x.branchlength[2]) * ")"
+        else newick = newick * _writenewick(x.children[2]) * string(x.children[2].node) * ":" * string(x.branchlength[2]) * ")"
+        end
+        return(newick)
+    end
+
+    #adds root info to _writenewick output
+    function writenewick(clade)
+        return(_writenewick(clade) * clade.node * ";")
+    end
+
+    #internal function called by readnewick
+    function _readnewick(testarray, index)
+        name = split(testarray[index][1],":")[1]
+        if  index != length(testarray) &&
+            testarray[index][2]+1 == testarray[index+1][2]
+            child1 = split(testarray[index+1][1],":")
+            branchlength1 = parse(Float64,child1[2])
+            child2index = findnext(x -> x[2] == testarray[index][2]+1, testarray, index+2)
+            child2 = split(testarray[child2index][1],":")
+            branchlength2 = parse(Float64,child2[2])
+            return Clade(name, [_readnewick(testarray, index+1), _readnewick(testarray, child2index)], [branchlength1, branchlength2])
+        else
+            return Clade(name)
+        end
+    end
+
+    #reads newick format into Clade data structure
+    function readnewick(newick::String)
+        newicksplit = split(newick, r"(?=;)|(?=\()|(?<=\()|(?=\))|(?<=\))|,")
+        nest=0
+        newickarray = []
+        for char in reverse(newicksplit)
+            if char == "("
+                nest-=1
+            elseif char == ")"
+                nest+=1
+            else
+                push!(newickarray, [char,nest])
+            end
+        end
+        _readnewick(newickarray, 1)
+    end
+
     function isleaf(x::Clade)
         if x.evoltype == "Leaf"
             return(true)
@@ -36,8 +87,25 @@ module SimTree
         end
     end
 
+    function isloss(x::Clade)
+        if x.evoltype == "Loss"
+            return(true)
+        else
+            return(false)
+        end
+    end
+
     function istip(x::Clade)
         if x.children == nothing
+            return(true)
+        else
+            return(false)
+        end
+    end
+
+    function isdegenerate(x::Clade)
+        y = gettips(x)
+        if all(t->isloss(t),y)
             return(true)
         else
             return(false)
@@ -64,6 +132,7 @@ module SimTree
         return x[findmax(heightlist)[2]]
     end
 
+    #internal function called by nameleaves
     function _getnames(x::Array,E::Int64=1,l::Array=[])
         if length(x) <= 26^E
             AZlist = collect('A':'Z')
@@ -105,22 +174,70 @@ module SimTree
         end
     end
 
-    function isterminal(clade::Clade)
-        if any(testclade.children .== "Leaf")
-            return(false)
+    function gettips(clade::Clade,cladelist::Array=[])
+        if istip(clade)
+            push!(cladelist,clade)
+            return(cladelist)
         else
-            for branch in testclade.children
-                isterminal(branch)
-            end
+            gettips(clade.children[1],cladelist)
+            gettips(clade.children[2],cladelist)
+            return(cladelist)
         end
     end
 
-    export Clade, getnodes, isleaf, istip, _getnames, nameleaves, getheight
+    function getleaves(clade::Clade,cladelist::Array=[])
+        if isleaf(clade)
+            push!(cladelist,clade)
+            return(cladelist)
+        else
+            getleaves(clade.children[1],cladelist)
+            getleaves(clade.children[2],cladelist)
+            return(cladelist)
+        end
+    end
+
+    #internal function called by treeprune
+    function _treeprune(clade::Clade)
+        for i in [1,2]
+            if istip(clade)==false && istip(clade.children[i])==false
+                if isdegenerate(clade.children[i].children[1])
+                    _treeprune(clade.children[i])
+                    clade.branchlength[i]+=clade.children[i].branchlength[2]
+                    clade.children[i]=clade.children[i].children[2]
+                elseif isdegenerate(clade.children[i].children[2])
+                    _treeprune(clade.children[i])
+                    clade.branchlength[i]+=clade.children[i].branchlength[1]
+                    clade.children[i]=clade.children[i].children[1]
+                else
+                    _treeprune(clade.children[i])
+                end
+            end
+        end
+        return clade
+    end
+
+    #removes losses from Clade structure
+    function treeprune(clade::Clade)
+        if istip(clade.children[1]) && istip(clade.children[2])
+            error("only <=2 lineages found")
+        end
+        if isdegenerate(clade.children[2])
+            clade=clade.children[1]
+            treeprune(clade)
+        elseif isdegenerate(clade.children[1])
+            clade=clade.children[2]
+            treeprune(clade)
+        else
+            _treeprune(clade)
+        end
+    end
+
+
+    export Clade, _writenewick, writenewick, _readnewick, readnewick, getnodes,
+    isleaf, istip, _getnames, nameleaves, getheight, treeprune, _treeprune,
+    gettips, getnodes
 
 end
 
-testclade = Clade(nothing,[Clade(nothing,nothing,nothing,"Loss"),Clade(nothing,nothing,nothing,"Loss")],[1,1])
 
-isterminal(testclade)
-
-Main.SimTree.Clade
+collect('α':'ω')
